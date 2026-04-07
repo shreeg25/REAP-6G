@@ -14,7 +14,8 @@ matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import matplotlib.gridspec as gridspec
 import matplotlib.patches as mpatches
-# --- IEEE PUBLICATION PLOT STYLING ---
+
+# --- IEEE PUBLICATION PLOT STYLING (LARGE FONT) ---
 plt.style.use('seaborn-v0_8-whitegrid')
 plt.rcParams.update({
     'figure.facecolor': 'white',
@@ -25,12 +26,12 @@ plt.rcParams.update({
     'xtick.color': 'black',
     'ytick.color': 'black',
     'axes.edgecolor': 'black',
-    'font.size': 14,          # Global font size
-    'axes.titlesize': 16,     # Title size
-    'axes.labelsize': 14,     # Axis label size
-    'xtick.labelsize': 12,
-    'ytick.labelsize': 12,
-    'legend.fontsize': 12
+    'font.size': 18,          # Base font size (was 14)
+    'axes.titlesize': 20,     # Subplot titles (was 16)
+    'axes.labelsize': 18,     # X/Y axis labels (was 14)
+    'xtick.labelsize': 16,    # Axis tick numbers (was 12)
+    'ytick.labelsize': 16,    # Axis tick numbers (was 12)
+    'legend.fontsize': 16     # Legend text (was 12)
 })
 from matplotlib.colors import LinearSegmentedColormap
 from datetime import datetime
@@ -38,7 +39,7 @@ warnings.filterwarnings('ignore')
 
 # ── CONFIGURATION — edit these ────────────────────────────────────────────────
 DATA_DIR    = r"G:\Shree\6G Beam Switching enabled by SNN\6G Dataset creation\deepmimo_scenarios\O1_140"
-RESULTS_DIR = r"G:\Shree\multi trajectory\results"   # all outputs go here
+RESULTS_DIR = r"G:\Shree\Predictive RSNN beam switching architecture\results"   # all outputs go here
 N_TRAJ      = 50       # number of UE trajectories
 N_STEPS     = 100      # time steps per trajectory
 SEQ_LEN     = 20       # SNN input sequence length
@@ -220,7 +221,8 @@ def plot_trajectory_diagram(trajectories, ds, save_path):
     ax_vel.set_xlabel('Mobility Pattern'); ax_vel.set_ylabel('Velocity (m/s)')
     ax_vel.tick_params(axis='x', rotation=20)
 
-    fig.suptitle('DeepMIMO 140 GHz | Multi-User Trajectory Generation | 6G Beam Switching', fontsize=18, fontweight='bold', y=0.97)
+    fig.suptitle('DeepMIMO 140 GHz | Multi-User Trajectory Generation | 6G Beam Switching', 
+             fontsize=24, fontweight='bold', y=0.97)
     plt.savefig(save_path, dpi=150, bbox_inches='tight', facecolor='white')
     plt.close()
 
@@ -264,9 +266,8 @@ model.load_state_dict(torch.load(save_path, map_location=device))
 metrics = evaluate_on_trajectories(model, trajectories, device, seq_len=SEQ_LEN)
 print_metrics(metrics)
 
-
 # ════════════════════════════════════════════════════════════════════════════
-# PLOT B — TRAINING CURVES + ACCURACY METRICS
+# PLOT B — TRAINING CURVES + ACCURACY METRICS (PASTE THIS WHOLE BLOCK)
 # ════════════════════════════════════════════════════════════════════════════
 
 def plot_training_results(history, metrics, trajectories, save_path):
@@ -317,7 +318,7 @@ def plot_training_results(history, metrics, trajectories, save_path):
     tk_clrs = ['#3b82f6', '#10b981', '#f59e0b']
     bars = ax.bar(['Top-1','Top-3','Top-5'], tk_vals, color=tk_clrs, edgecolor='black', width=0.5, alpha=0.9)
     for b, v in zip(bars, tk_vals):
-        ax.text(b.get_x()+b.get_width()/2, v+1.5, f'{v:.1f}%', ha='center', va='bottom', color='black', fontweight='bold', fontsize=12)
+        ax.text(b.get_x()+b.get_width()/2, v+1.5, f'{v:.1f}%', ha='center', va='bottom', color='black', fontweight='bold', fontsize=16)
     ax.set_ylim(0, 115); ax.set_title('Top-K Beam Accuracy', fontweight='bold'); ax.set_ylabel('Accuracy (%)')
 
     # (6) Spectral efficiency
@@ -326,7 +327,7 @@ def plot_training_results(history, metrics, trajectories, save_path):
     se_clrs = ['#ef4444', '#10b981', '#3b82f6']
     bars = ax.bar(['Random\nBaseline','R-SNN\nPredicted','Oracle\n(GT)'], se_vals, color=se_clrs, edgecolor='black', width=0.5, alpha=0.9)
     for b, v in zip(bars, se_vals):
-        ax.text(b.get_x()+b.get_width()/2, v+0.05, f'{v:.2f}', ha='center', va='bottom', color='black', fontweight='bold', fontsize=12)
+        ax.text(b.get_x()+b.get_width()/2, v+0.05, f'{v:.2f}', ha='center', va='bottom', color='black', fontweight='bold', fontsize=16)
     gain_pct = metrics.spectral_eff_gain * 100
     ax.set_title(f'Spectral Efficiency (+{gain_pct:.1f}% vs random)', fontweight='bold'); ax.set_ylabel('SE (bits/s/Hz)')
 
@@ -356,16 +357,28 @@ def plot_training_results(history, metrics, trajectories, save_path):
         f"  Epochs trained    {len(history.train_loss):6d}\n"
         f"  Device            {'GPU' if torch.cuda.is_available() else 'CPU':>6}\n"
     )
-    ax.text(0.05, 0.95, summary, transform=ax.transAxes, fontfamily='monospace', fontsize=12, color='black', verticalalignment='top', bbox=dict(boxstyle='round,pad=0.5', facecolor='#f8fafc', edgecolor='black', lw=1.5))
+    ax.text(0.05, 0.95, summary, transform=ax.transAxes, fontfamily='monospace', fontsize=16, color='black', verticalalignment='top', bbox=dict(boxstyle='round,pad=0.5', facecolor='#f8fafc', edgecolor='black', lw=1.5))
 
-    fig.suptitle('R-SNN Training Results | DeepMIMO 140 GHz | 6G Beam Switching', fontsize=18, fontweight='bold', y=0.97)
+    fig.suptitle('R-SNN Training Results | DeepMIMO 140 GHz | 6G Beam Switching', fontsize=24, fontweight='bold', y=0.97)
     plt.savefig(save_path, dpi=150, bbox_inches='tight', facecolor='white')
     plt.close()
 
 # ════════════════════════════════════════════════════════════════════════════
-# SAVE METRICS AS TEXT
+# STEP 7 — GENERATE PLOTS AND SAVE METRICS
 # ════════════════════════════════════════════════════════════════════════════
+print(f"\n[Step 7] Generating IEEE-formatted plots...")
 
+# 1. Trigger the Trajectory Plot
+traj_plot = os.path.join(RUN_DIR, '1_trajectory_diagram.png')
+plot_trajectory_diagram(trajectories, ds, traj_plot)
+print(f"  [Plot] Trajectory diagram → {traj_plot}")
+
+# 2. Trigger the Training Results Plot
+result_plot = os.path.join(RUN_DIR, '2_training_results.png')
+plot_training_results(history, metrics, trajectories, result_plot)
+print(f"  [Plot] Training results   → {result_plot}")
+
+# 3. Save Metrics Text
 metrics_path = os.path.join(RUN_DIR, 'metrics.txt')
 with open(metrics_path, 'w') as f:
     f.write(f"Run ID: {RUN_ID}\n")
@@ -395,7 +408,7 @@ with open(metrics_path, 'w') as f:
 
 print(f"  [Save] Metrics text      → {metrics_path}")
 
-# Save training history as numpy arrays
+# 4. Save numpy arrays
 np.save(os.path.join(RUN_DIR, 'train_loss.npy'),  np.array(history.train_loss))
 np.save(os.path.join(RUN_DIR, 'val_loss.npy'),    np.array(history.val_loss))
 np.save(os.path.join(RUN_DIR, 'train_acc.npy'),   np.array(history.train_acc))

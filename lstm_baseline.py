@@ -105,6 +105,8 @@ def evaluate_baseline(model, test_loader, log_file, device='cuda'):
 
 if __name__ == "__main__":
     import torch
+    import os
+    import numpy as np
     
     print("\n[1] Preparing Data...")
     
@@ -121,13 +123,33 @@ if __name__ == "__main__":
     N_TRAJ = 50
     N_STEPS = 850   
     SEQ_LEN = 10    
-    N_BEAMS = 64    # <-- Added this so your ds line works!
+    N_BEAMS = 64    
+    DATA_DIR = r"G:\Shree\6G Beam Switching enabled by SNN\6G Dataset creation\deepmimo_scenarios\O1_140"
+    
+    # NOTE: Set these to match your run_pipeline.py!
+    T_INDEX = 1  
+    TX_INDEX = 1 
     
     # --- 3. DATA GENERATION ---
-    print("Loading DeepMIMO dataset...")
-    ds = DeepMIMODataset(n_beams=N_BEAMS)
+    print(f"\n[Step 1] Loading dataset ...")
+    if os.path.isdir(DATA_DIR):
+        ds = load_deepmimo_multifile(DATA_DIR, t_index=T_INDEX, tx_index=TX_INDEX, n_beams=N_BEAMS)
+    else:
+        print("CRITICAL ERROR: Could not find DATA_DIR. Check your path!")
+        exit()
+
+    # --- MASTER DATA SCRUBBER ---
+    print("\n[Step 1.5] Master Purge: Eradicating NaN/Inf artifacts from all MATLAB tensors...")
+    ds.user_locations = np.nan_to_num(ds.user_locations, nan=0.0, posinf=0.0, neginf=0.0)
+    ds.tx_location = np.nan_to_num(ds.tx_location, nan=0.0, posinf=0.0, neginf=0.0)
+    ds.path_power = np.nan_to_num(ds.path_power, nan=-200.0, posinf=-200.0, neginf=-200.0)
+    for attr in ['path_delay', 'path_phase', 'aod_az', 'aod_el', 'aoa_az', 'aoa_el']:
+        setattr(ds, attr, np.nan_to_num(getattr(ds, attr), nan=0.0, posinf=0.0, neginf=0.0))
+    ds.channels = _synthesize_channels(ds, N_rx=4, N_tx=64)
+    ds.channels = np.nan_to_num(ds.channels, nan=0.0, posinf=0.0, neginf=0.0)
+    # ----------------------------
     
-    print("Generating trajectories...")
+    print("\nGenerating trajectories...")
     trajectories = generate_trajectories(ds, n_trajectories=N_TRAJ,
                                          n_steps=N_STEPS, dt=0.5, top_k=5, seed=42)
     
@@ -136,7 +158,7 @@ if __name__ == "__main__":
     n_features   = X.shape[-1]
     
     # --- 4. DATALOADERS ---
-    print(f"Building dataloaders for {n_features} features (75/15/10 split)...")
+    print(f"\nBuilding dataloaders for {n_features} features (75/15/10 split)...")
     train_loader, val_loader, test_loader = build_dataloaders(X, y, y_topk) 
     
     print("\n[2] Initializing LSTM Baseline...")

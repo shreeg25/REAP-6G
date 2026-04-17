@@ -41,8 +41,9 @@ def train_lstm_baseline(train_loader, val_loader, epochs=40, lr=0.0005, device='
         
         pbar = tqdm(train_loader, desc=f"Epoch {epoch+1:02d}/{epochs}", leave=False)
         
-        for X_batch, y_batch in pbar:
-            X_batch, y_batch = X_batch.to(device), y_batch.to(device)
+        # FIX: Unpack safely regardless of how many items the dataloader returns
+        for batch in pbar:
+            X_batch, y_batch = batch[0].to(device), batch[1].to(device)
             
             optimizer.zero_grad()
             logits = model(X_batch)
@@ -53,20 +54,15 @@ def train_lstm_baseline(train_loader, val_loader, epochs=40, lr=0.0005, device='
             
             train_loss += loss.item()
             
-            # Update the progress bar with the current loss
             pbar.set_postfix({"Loss": f"{loss.item():.4f}"})
             
         avg_loss = train_loss / len(train_loader)
-        
-        # Print the final summary for the epoch so it stays on screen
         print(f"Epoch {epoch+1:02d}/{epochs} Completed | Avg Loss: {avg_loss:.4f}")
         training_history.append([epoch+1, avg_loss])
         
-    # Save the model weights
     torch.save(model.state_dict(), save_path)
     print(f"\n[+] Model weights saved to {save_path}")
     
-    # Save the training history to CSV
     log_file = "lstm_training_logs.csv"
     with open(log_file, mode='w', newline='') as file:
         writer = csv.writer(file)
@@ -81,22 +77,20 @@ def evaluate_baseline(model, test_loader, log_file, device='cuda'):
     correct = 0
     total = 0
     
-    print("--- Starting Evaluation ---")
+    print("\n--- Starting Evaluation ---")
     with torch.no_grad():
-        for X_batch, y_batch in test_loader:
-            X_batch, y_batch = X_batch.to(device), y_batch.to(device)
+        # FIX: Safe unpacking here too!
+        for batch in test_loader:
+            X_batch, y_batch = batch[0].to(device), batch[1].to(device)
             logits = model(X_batch)
             
-            # Get Top-1 Prediction
             predictions = torch.argmax(logits, dim=-1)
-            
             correct += (predictions == y_batch).sum().item()
             total += y_batch.numel()
             
     top1_acc = (correct / total) * 100
     print(f"LSTM Top-1 Accuracy: {top1_acc:.2f}%")
     
-    # Append final accuracy to the log file
     with open(log_file, mode='a', newline='') as file:
         writer = csv.writer(file)
         writer.writerow(["Final_Top1_Accuracy", f"{top1_acc:.2f}%"])

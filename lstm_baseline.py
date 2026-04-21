@@ -114,7 +114,7 @@ if __name__ == "__main__":
     from trainer import build_dataloaders
     
     # --- 2. CONFIGURATION ---
-    N_TRAJ = 50
+    N_TRAJ = 250
     N_STEPS = 850   
     SEQ_LEN = 10    
     N_BEAMS = 64    

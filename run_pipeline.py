@@ -40,7 +40,7 @@ warnings.filterwarnings('ignore')
 # ── CONFIGURATION — edit these ────────────────────────────────────────────────
 DATA_DIR    = r"G:\Shree\6G Beam Switching enabled by SNN\6G Dataset creation\deepmimo_scenarios\O1_140"
 RESULTS_DIR = r"G:\Shree\Predictive RSNN beam switching architecture\results"   # all outputs go here
-N_TRAJ      = 50       # number of UE trajectories
+N_TRAJ      = 250       # number of UE trajectories
 N_STEPS     = 100      # time steps per trajectory
 SEQ_LEN     = 20       # SNN input sequence length
 N_BEAMS     = 64       # beam codebook size

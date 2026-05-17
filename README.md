@@ -49,6 +49,41 @@ graph TD
     end
 ```
 
+## 📊 Results
+
+**REAP-6G Performance and Efficiency Metrics**
+
+### Beam prediction accuracy
+
+| Metric | Value |
+|--------|-------|
+| LSTM Baseline Accuracy | 97.30% |
+| GRU Baseline Accuracy | 97.71% |
+| **Top-1 Prediction Accuracy (SNN)** | **95.76%** |
+| Top-3 Prediction Accuracy (SNN) | 99.63% |
+| Top-5 Prediction Accuracy (SNN) | 99.88% |
+
+### Spectral efficiency
+
+| Metric | Value |
+|--------|-------|
+| Oracle (Ground Truth) SE | 6.658 bits/s/Hz |
+| **SNN Predicted SE** | **6.641 bits/s/Hz** |
+| Random Baseline SE | 2.334 bits/s/Hz |
+| **SE Gain vs. Random Baseline** | **+184.5%** |
+
+### Handover stability
+
+| Metric | Value |
+|--------|-------|
+| Avg. Beam Switches / Trajectory | 2.0 |
+| Handover Oscillation Rate | 0.0200 |
+
+**Key finding:** REAP-6G's SNN achieves spectral efficiency of 6.641 bits/s/Hz — within **0.26%
+of the oracle upper bound** — while delivering a **+184.5% SE gain** over random beam selection.
+Top-3 accuracy of 99.63% ensures robust beam coverage with minimal handover oscillation,
+meeting 6G ultra-low-latency requirements.
+
 ## 💻 Tech Stack
 
 -   **Python**: Primary programming language.

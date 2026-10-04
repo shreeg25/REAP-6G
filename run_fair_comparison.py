@@ -29,7 +29,8 @@ from torch.utils.data import DataLoader, TensorDataset
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from deepmimo_loader import (load_deepmimo_multifile, DeepMIMODataset, _synthetic_grid,
-                             _synthesize_channels, _generate_dft_codebook)
+                             _synthesize_channels, _generate_dft_codebook, build_file_index, _read_mat)
+import trajectory_generator as _tg
 from trajectory_generator import generate_trajectories, trajectories_to_sequences
 from snn_model import build_model
 from trainer import train as train_snn
@@ -58,7 +59,77 @@ class GRUSeq(nn.Module):
 
 
 # ---------------------------------------------------------------- data
-def load_data(synthetic, data_dir, n_traj):
+# trajectory_generator calls compute_beam_gains(ds.channels, codebook) once PER TRAJECTORY, with a python
+# loop over users x beams. Harmless for 21 users, ~30+ min for 10k users. Same maths, vectorised + cached.
+_gain_cache = {}
+def _fast_gains(H, codebook):
+    key = (id(H), H.shape, codebook.shape)
+    if key not in _gain_cache:
+        _gain_cache[key] = np.abs(np.einsum('urt,bt->urb', H[..., 0], codebook)).sum(axis=1)
+    return _gain_cache[key]
+_tg.compute_beam_gains = _fast_gains
+
+
+def load_subsampled(data_dir, t_index, tx_index, users_per_file, cache_dir, seed=0, probe=False):
+    """The original loader keeps ONLY THE FIRST UE of every row file (21 UEs in total). Each row file holds
+    ~500k UEs, so this draws `users_per_file` random UEs that have at least one propagation path from every
+    row file of the chosen (snapshot, BS)."""
+    index = build_file_index(data_dir)
+    t_key = sorted(index['rx_pos'])[min(t_index, len(index['rx_pos']) - 1)]
+    tx_key = sorted(index['rx_pos'][t_key])[min(tx_index, len(index['rx_pos'][t_key]) - 1)]
+    rows = sorted(index['rx_pos'][t_key][tx_key])
+    params = ['power', 'delay', 'phase', 'aoa_az', 'aoa_el', 'aod_az', 'aod_el']
+    MAXP = 25
+    f = lambda p, r: index[p][t_key][tx_key][r]
+    if probe:
+        for p in ['rx_pos', 'tx_pos'] + params:
+            a = _read_mat(f(p, rows[0]))
+            print(f"  {p:8s} shape={None if a is None else a.shape}")
+        sys.exit(0)
+    cache = os.path.join(cache_dir, f"ue_subsample_t{t_key}_tx{tx_key}_n{users_per_file}_s{seed}.npz")
+    if os.path.exists(cache):
+        z = np.load(cache); print(f"[subsample] loaded cache {cache}")
+        pos, tx, par = z['pos'], z['tx'], {p: z[p] for p in params}
+    else:
+        rs = np.random.RandomState(seed)
+        pos_l, par_l, tx = [], {p: [] for p in params}, np.zeros(3)
+        for r in rows:
+            pos = np.atleast_2d(_read_mat(f('rx_pos', r)))          # a one-UE file comes back as shape (3,)
+            if pos.shape[1] != 3 and pos.shape[0] == 3: pos = pos.T
+            N = len(pos)
+            arr = {}
+            for p in params:
+                a = _read_mat(f(p, r)); assert a is not None, f"could not read {p} row {r}"
+                a = np.atleast_2d(a)
+                if a.shape[0] != N and a.shape[1] == N: a = a.T
+                assert a.shape[0] == N, f"{p} row {r}: shape {a.shape} does not match {N} UEs"
+                arr[p] = a
+            pw = arr['power']
+            valid = np.where((np.isfinite(pw) & (pw != 0)).any(axis=1) & np.isfinite(pos).all(axis=1))[0]
+            if len(valid) == 0:
+                print(f"[subsample] row {r:03d}: {N} UEs, none with a path -> skipped"); continue
+            sel = np.sort(rs.choice(valid, min(users_per_file, len(valid)), replace=False))
+            print(f"[subsample] row {r:03d}: {N} UEs, {len(valid)} with >=1 path, kept {len(sel)}")
+            pos_l.append(pos[sel, :3])
+            for p in params:
+                a = arr[p][sel][:, :MAXP]
+                par_l[p].append(np.pad(a, ((0, 0), (0, MAXP - a.shape[1]))))
+        tx_arr = _read_mat(f('tx_pos', rows[0]))
+        tx = np.atleast_1d(tx_arr).flatten()[:3] if tx_arr is not None else tx
+        pos = np.concatenate(pos_l); par = {p: np.concatenate(par_l[p]) for p in params}
+        os.makedirs(cache_dir, exist_ok=True)
+        np.savez_compressed(cache, pos=pos, tx=tx, **par)
+    ds = DeepMIMODataset(n_beams=N_BEAMS)
+    ds.user_locations, ds.tx_location = pos, tx
+    ds.path_power, ds.path_delay, ds.path_phase = par['power'], par['delay'], par['phase']
+    ds.aoa_az, ds.aoa_el, ds.aod_az, ds.aod_el = par['aoa_az'], par['aoa_el'], par['aod_az'], par['aod_el']
+    ds.num_paths = (np.isfinite(ds.path_power) & (ds.path_power != 0)).sum(axis=1)
+    ds.beam_codebook = _generate_dft_codebook(N_BEAMS, 64)
+    print(f"[subsample] {ds.n_users} UEs, avg paths {ds.num_paths.mean():.1f}, "
+          f"x=[{pos[:,0].min():.0f},{pos[:,0].max():.0f}] y=[{pos[:,1].min():.0f},{pos[:,1].max():.0f}]")
+    return ds
+
+def load_data(synthetic, data_dir, n_traj, users_per_file=0, cache_dir='.', probe=False):
     if synthetic or not os.path.isdir(data_dir):
         print("[data] synthetic demo dataset (smoke test only -- NOT for paper numbers)")
         rs = np.random.RandomState(42)
@@ -73,6 +144,8 @@ def load_data(synthetic, data_dir, n_traj):
         ds.num_paths = np.full(n_users, n_p)
         ds.beam_codebook = _generate_dft_codebook(N_BEAMS, 64)
         ds.channels = _synthesize_channels(ds, N_rx=4, N_tx=64)
+    elif users_per_file > 0 or probe:
+        ds = load_subsampled(data_dir, T_INDEX, TX_INDEX, users_per_file, cache_dir, probe=probe)
     else:
         ds = load_deepmimo_multifile(data_dir, t_index=T_INDEX, tx_index=TX_INDEX, n_beams=N_BEAMS)
     # same NaN/Inf scrub as run_pipeline.py
@@ -87,7 +160,7 @@ def load_data(synthetic, data_dir, n_traj):
     X, y, yk = trajectories_to_sequences(trajs, seq_len=SEQ_LEN, stride=STRIDE)
     per = len(range(0, N_STEPS - SEQ_LEN, STRIDE))          # windows per trajectory (16)
     assert len(X) == per * n_traj, "window ordering assumption broken"
-    return trajs, X, y, yk, per
+    return trajs, X, y, yk, per, ds.n_users
 
 
 def split_ids(n_traj, seed):
@@ -204,12 +277,13 @@ def eval_learned(model, kind, trajs, device):
     return res
 
 
-def eval_reference(trajs, seed):
+def eval_reference(trajs, seed, fixed_beam):
     rs = np.random.RandomState(1000 + seed)
     gts = [t.beam_indices for t in trajs]
     return {
         'Oracle': score(trajs, gts),
         'Reactive (prev-step best beam)': score(trajs, [np.concatenate([[g[0]], g[:-1]]) for g in gts]),
+        'Fixed beam (train-majority)': score(trajs, [np.full(t.n_steps, fixed_beam) for t in trajs]),
         'Random': score(trajs, [rs.randint(0, N_BEAMS, t.n_steps) for t in trajs]),
     }
 
@@ -222,12 +296,19 @@ def main():
     ap.add_argument('--n_traj', type=int, default=N_TRAJ)
     ap.add_argument('--data_dir', default=DATA_DIR)
     ap.add_argument('--synthetic', action='store_true')
+    ap.add_argument('--users_per_file', type=int, default=500,
+                    help='UEs drawn from each row file (21 files). 0 = original loader (first UE of each file only)')
+    ap.add_argument('--probe', action='store_true', help='print array shapes of the first row file and exit')
     ap.add_argument('--out', default='fair_comparison_results')
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    trajs, X, y, yk, per = load_data(a.synthetic, a.data_dir, a.n_traj)
+    trajs, X, y, yk, per, n_ue = load_data(a.synthetic, a.data_dir, a.n_traj, a.users_per_file, a.out, a.probe)
+    lab = np.concatenate([t.beam_indices for t in trajs])
+    cnt = np.bincount(lab, minlength=N_BEAMS)
+    print(f"[diag] UE locations in the loaded dataset: {n_ue} | distinct best-beam labels: {(cnt > 0).sum()} of {N_BEAMS}"
+          f" | most common beam = {100 * cnt.max() / cnt.sum():.1f}% of all steps")
     rows = []
     for seed in a.seeds:
         t0 = time.time()
@@ -244,7 +325,8 @@ def main():
             'GRU': ('rnn', train_baseline(GRUSeq(input_dim=10, output_dim=N_BEAMS), tr, va, device, a.epochs)),
         }
         results = {n: eval_learned(m, k, test_trajs, device) for n, (k, m) in models.items()}
-        results.update(eval_reference(test_trajs, seed))
+        fixed = int(np.bincount(np.concatenate([trajs[i].beam_indices for i in tr_ids]), minlength=N_BEAMS).argmax())
+        results.update(eval_reference(test_trajs, seed, fixed))
         for name, r in results.items():
             rows.append(dict(seed=seed, model=name, **r))
             print(f"  {name:32s} top1={r['top1']:6.2f}  SE={r['se']:.3f}  switches/traj={r['switches_per_traj']:.2f}"
@@ -253,10 +335,10 @@ def main():
 
     # ---- save + summarise
     keys = sorted({k for r in rows for k in r}, key=lambda k: (k not in ('seed', 'model'), k))
-    with open(os.path.join(a.out, 'per_seed.csv'), 'w', newline='') as f:
+    with open(os.path.join(a.out, 'per_seed.csv'), 'w', newline='', encoding='utf-8') as f:
         w = csv.DictWriter(f, fieldnames=keys); w.writeheader(); w.writerows(rows)
 
-    order = ['REAP-6G (SNN)', 'LSTM', 'GRU', 'Reactive (prev-step best beam)', 'Random', 'Oracle']
+    order = ['REAP-6G (SNN)', 'LSTM', 'GRU', 'Reactive (prev-step best beam)', 'Fixed beam (train-majority)', 'Random', 'Oracle']
     cols = [('top1', 'Top-1 %'), ('top3', 'Top-3 %'), ('top5', 'Top-5 %'), ('se', 'SE b/s/Hz'),
             ('switches_per_traj', 'Switches/traj'), ('pingpong_rate', 'Ping-pong'),
             ('fr_layer1', 'FR L1 %'), ('fr_layer2', 'FR L2 %'), ('ac_ops', 'AC ops'), ('energy_vs_dense_pct', 'Energy % of dense')]
@@ -274,12 +356,12 @@ def main():
     snn = {r['seed']: r['top1'] for r in rows if r['model'] == 'REAP-6G (SNN)'}
     for b in ('LSTM', 'GRU'):
         d = [snn[r['seed']] - r['top1'] for r in rows if r['model'] == b]
-        lines.append(f"\nTop-1 (SNN − {b}), paired by seed: {np.mean(d):+.2f} ± {sd(d):.2f} points")
+        lines.append(f"\nTop-1 (SNN - {b}), paired by seed: {np.mean(d):+.2f} ± {sd(d):.2f} points")
     txt = "\n".join(lines)
     print("\n" + txt)
-    open(os.path.join(a.out, 'summary.md'), 'w').write(txt + "\n")
+    open(os.path.join(a.out, 'summary.md'), 'w', encoding='utf-8').write(txt + "\n")
     json.dump(vars(a) | dict(N_STEPS=N_STEPS, SEQ_LEN=SEQ_LEN, T_INDEX=T_INDEX, TX_INDEX=TX_INDEX),
-              open(os.path.join(a.out, 'config.json'), 'w'), indent=1)
+              open(os.path.join(a.out, 'config.json'), 'w', encoding='utf-8'), indent=1)
 
 
 if __name__ == '__main__':

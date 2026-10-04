@@ -1,8 +1,12 @@
 {
  "seeds": [
-  0
+  0,
+  1,
+  2,
+  3,
+  4
  ],
- "epochs": 2,
+ "epochs": 40,
  "n_traj": 250,
  "data_dir": "F:\\Shree\\6G Beam Switching enabled by SNN\\6G Dataset creation\\deepmimo_scenarios\\O1_140",
  "synthetic": false,

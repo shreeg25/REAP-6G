@@ -177,10 +177,15 @@ def make_loader(X, y, yk, ids, per, shuffle, seed):
 
 
 # ---------------------------------------------------------------- training
-def train_baseline(model, tr, va, device, epochs):
+def train_baseline(model, tr, va, device, epochs, recipe='released'):
     """Baselines as released (AdamW lr 5e-4, plain CE) + best-val-loss checkpointing, like the SNN."""
     model.to(device)
-    opt, ce = optim.AdamW(model.parameters(), lr=LR), nn.CrossEntropyLoss()
+    if recipe == 'snn':      # same optimiser recipe trainer.py gives the SNN
+        opt = optim.AdamW(model.parameters(), lr=LR, weight_decay=1e-4)
+        sched = optim.lr_scheduler.CosineAnnealingLR(opt, T_max=epochs, eta_min=1e-6)
+    else:                    # as released in lstm_baseline.py / train_gru_baseline.py
+        opt, sched = optim.AdamW(model.parameters(), lr=LR), None
+    ce = nn.CrossEntropyLoss()
     best, best_state = float('inf'), None
     for _ in range(epochs):
         model.train()
@@ -188,7 +193,11 @@ def train_baseline(model, tr, va, device, epochs):
             xb, yb = xb.to(device), yb.to(device)
             opt.zero_grad()
             ce(model(xb).reshape(-1, N_BEAMS), yb.reshape(-1)).backward()
+            if recipe == 'snn':
+                torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.0)
             opt.step()
+        if sched is not None:
+            sched.step()
         model.eval(); tot, n = 0.0, 0
         with torch.no_grad():
             for xb, yb, _ in va:
@@ -298,13 +307,16 @@ def main():
     ap.add_argument('--synthetic', action='store_true')
     ap.add_argument('--users_per_file', type=int, default=500,
                     help='UEs drawn from each row file (21 files). 0 = original loader (first UE of each file only)')
+    ap.add_argument('--baseline_recipe', choices=['released', 'snn'], default='released',
+                    help="'snn' gives LSTM/GRU the SNN's AdamW wd=1e-4 + cosine LR + grad-clip 5.0")
+    ap.add_argument('--cache_dir', default=None, help='where the UE subsample cache lives (default: --out)')
     ap.add_argument('--probe', action='store_true', help='print array shapes of the first row file and exit')
     ap.add_argument('--out', default='fair_comparison_results')
     a = ap.parse_args()
     os.makedirs(a.out, exist_ok=True)
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    trajs, X, y, yk, per, n_ue = load_data(a.synthetic, a.data_dir, a.n_traj, a.users_per_file, a.out, a.probe)
+    trajs, X, y, yk, per, n_ue = load_data(a.synthetic, a.data_dir, a.n_traj, a.users_per_file, a.cache_dir or a.out, a.probe)
     lab = np.concatenate([t.beam_indices for t in trajs])
     cnt = np.bincount(lab, minlength=N_BEAMS)
     print(f"[diag] UE locations in the loaded dataset: {n_ue} | distinct best-beam labels: {(cnt > 0).sum()} of {N_BEAMS}"
@@ -321,8 +333,8 @@ def main():
 
         models = {
             'REAP-6G (SNN)': ('snn', train_snn_model(tr, va, device, a.epochs, os.path.join(a.out, f'snn_seed{seed}.pt'))),
-            'LSTM': ('rnn', train_baseline(LSTMBeamTracker(input_dim=10, output_dim=N_BEAMS), tr, va, device, a.epochs)),
-            'GRU': ('rnn', train_baseline(GRUSeq(input_dim=10, output_dim=N_BEAMS), tr, va, device, a.epochs)),
+            'LSTM': ('rnn', train_baseline(LSTMBeamTracker(input_dim=10, output_dim=N_BEAMS), tr, va, device, a.epochs, a.baseline_recipe)),
+            'GRU': ('rnn', train_baseline(GRUSeq(input_dim=10, output_dim=N_BEAMS), tr, va, device, a.epochs, a.baseline_recipe)),
         }
         results = {n: eval_learned(m, k, test_trajs, device) for n, (k, m) in models.items()}
         fixed = int(np.bincount(np.concatenate([trajs[i].beam_indices for i in tr_ids]), minlength=N_BEAMS).argmax())

@@ -1,0 +1,27 @@
+{
+ "seeds": [
+  0,
+  1,
+  2,
+  3,
+  4,
+  5,
+  6,
+  7,
+  8,
+  9
+ ],
+ "epochs": 40,
+ "n_traj": 250,
+ "data_dir": "F:\\Shree\\6G Beam Switching enabled by SNN\\6G Dataset creation\\deepmimo_scenarios\\O1_140",
+ "synthetic": false,
+ "users_per_file": 500,
+ "baseline_recipe": "snn",
+ "cache_dir": "fair_results",
+ "probe": false,
+ "out": "fair_matched",
+ "N_STEPS": 100,
+ "SEQ_LEN": 20,
+ "T_INDEX": 0,
+ "TX_INDEX": 0
+}

@@ -104,21 +104,24 @@ def fig2(args):
     print(f"[fig2a] traced {len(shown)} of {len(trajs)} trajectories "
           f"({per_pat} per pattern); gain field from all {len(pts)} points")
 
-    # ---- (b) beam changes per trajectory
+    # ---- (b) beam changes per trajectory, bars coloured by mobility pattern
     sw = np.array([int(np.sum(np.diff(t.beam_indices) != 0)) for t in trajs])
-    fig, ax = plt.subplots(figsize=(3.4, 2.0))
+    fig, ax = plt.subplots(figsize=(3.4, 2.2))
     if args.hist_switches:
         ax.hist(sw, bins=np.arange(-0.5, sw.max() + 1.5), color=C_SNN,
                 edgecolor='white', linewidth=0.5)
+        ax.axvline(sw.mean(), color='black', ls='--', lw=1.1, label=f'Mean = {sw.mean():.1f}')
         ax.set_xlabel('Beam changes per trajectory'); ax.set_ylabel('# trajectories')
     else:
-        ax.bar(np.arange(len(sw)), sw, width=1.0, color=C_SNN, linewidth=0)
-        ax.set_xlabel('Trajectory index'); ax.set_ylabel('# beam changes')
-        ax.set_xlim(-2, len(sw) + 1)
-    ax.axhline(sw.mean(), color=C_LSTM, ls='--', lw=1.1, label=f'mean = {sw.mean():.2f}') \
-        if not args.hist_switches else ax.axvline(sw.mean(), color=C_LSTM, ls='--', lw=1.1,
-                                                  label=f'mean = {sw.mean():.2f}')
-    ax.legend(frameon=False)
+        bar_c = [cmap(uniq.index(l) % 10) for l in labels]
+        ax.bar(np.arange(len(sw)), sw, width=0.9, color=bar_c, linewidth=0)
+        ax.axhline(sw.mean(), color='black', ls='--', lw=1.1, label=f'Mean = {sw.mean():.1f}')
+        ax.set_xlabel('Trajectory index'); ax.set_ylabel('# beam switches')
+        ax.set_xlim(-3, len(sw) + 2); ax.set_ylim(0, sw.max() * 1.12)
+    if args.panel_titles:
+        ax.set_title('Beam switch count per trajectory')
+    ax.grid(alpha=0.3, linewidth=0.5)
+    ax.legend(frameon=True, framealpha=0.9, edgecolor='0.7', loc='upper right')
     fig.savefig(os.path.join(args.fig_dir, '1_trajectory_diagram_beamswitches.png'))
     plt.close(fig)
     print(f"[fig2] {len(trajs)} trajectories, {n_ue} UEs; beam changes mean {sw.mean():.2f}, "
@@ -215,6 +218,8 @@ def main():
     ap.add_argument('--skip_fig2', action='store_true')
     ap.add_argument('--show_traj', type=int, default=25,
                     help='how many trajectories to trace in Fig. 2a (0 = all); the gain field always uses all')
+    ap.add_argument('--panel_titles', action='store_true',
+                    help='draw a title inside each panel (IEEE style normally leaves this to the caption)')
     ap.add_argument('--hist_switches', action='store_true',
                     help='Fig. 2b as a histogram instead of the per-trajectory bars')
     a = ap.parse_args()
